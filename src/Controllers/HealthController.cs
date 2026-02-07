@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using McpBridge.Models.Api;
 using McpBridge.Services;
 
 namespace McpBridge.Controllers;
@@ -8,10 +9,8 @@ namespace McpBridge.Controllers;
 public class HealthController(IMcpClientService mcpClient) : ControllerBase
 {
     [HttpGet("/health")]
-    public IActionResult GetHealth() => Ok(new
+    public IActionResult GetHealth() => Ok(new HealthResponse
     {
-        Status = "healthy",
-        Timestamp = DateTime.UtcNow,
         ActiveServers = mcpClient.GetActiveServerCount()
     });
 }

@@ -1,7 +1,5 @@
 using System.Text.Json;
-using McpBridge.Models.Api;
 using McpBridge.Models.JsonRpc;
-using McpBridge.Models.Mcp;
 
 namespace McpBridge.Services;
 

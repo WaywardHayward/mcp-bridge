@@ -1,5 +1,4 @@
 using McpBridge.Models.Api;
-using McpBridge.Models.JsonRpc;
 using McpBridge.Models.Mcp;
 
 namespace McpBridge.Services;
@@ -23,10 +22,16 @@ public class McpClientService : IMcpClientService
 
     public IReadOnlyList<ServerInfo> GetServerInfos() =>
         _processManager.GetConfiguredServers()
-            .Select(name => new ServerInfo
+            .Select(name =>
             {
-                Name = name,
-                IsRunning = _processManager.IsServerRunning(name)
+                var config = _processManager.GetServerConfig(name);
+                return new ServerInfo
+                {
+                    Name = name,
+                    Command = config?.Command,
+                    Args = config?.Args ?? [],
+                    IsRunning = _processManager.IsServerRunning(name)
+                };
             }).ToList();
 
     public int GetActiveServerCount() => 
@@ -39,10 +44,7 @@ public class McpClientService : IMcpClientService
         return response?.Tools ?? [];
     }
 
-    public async Task<InvokeResponse> InvokeToolAsync(string serverName, InvokeRequest request, CancellationToken ct = default) =>
-        await TryInvokeToolAsync(serverName, request, ct);
-
-    public async Task<InvokeResponse> TryInvokeToolAsync(string serverName, InvokeRequest request, CancellationToken ct = default)
+    public async Task<InvokeResponse> InvokeToolAsync(string serverName, InvokeRequest request, CancellationToken ct = default)
     {
         try
         {
@@ -54,7 +56,7 @@ public class McpClientService : IMcpClientService
         }
     }
 
-    public async Task<InvokeResponse> InvokeToolCoreAsync(string serverName, InvokeRequest request, CancellationToken ct = default)
+    private async Task<InvokeResponse> InvokeToolCoreAsync(string serverName, InvokeRequest request, CancellationToken ct)
     {
         var process = await GetInitializedServerAsync(serverName, ct);
         var callParams = new { name = request.Tool, arguments = request.Params ?? new Dictionary<string, object>() };
@@ -78,9 +80,11 @@ public class McpClientService : IMcpClientService
     {
         var process = await _processManager.GetOrStartServerAsync(serverName, ct);
         
-        // Initialize if this is a fresh process (first call initializes it)
-        // TODO: Track initialization state in process wrapper
-        await _rpcClient.InitializeServerAsync(process, ct);
+        if (!process.IsInitialized)
+        {
+            await _rpcClient.InitializeServerAsync(process, ct);
+            process.IsInitialized = true;
+        }
         
         return process;
     }

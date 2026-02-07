@@ -26,6 +26,9 @@ public class McpProcessManager : IMcpProcessManager, IDisposable
 
     public IReadOnlyList<string> GetConfiguredServers() => _settings.Servers.Keys.ToList();
 
+    public McpServerConfig? GetServerConfig(string serverName) =>
+        _settings.Servers.TryGetValue(serverName, out var config) ? config : null;
+
     public Task<McpServerProcess> GetOrStartServerAsync(string serverName, CancellationToken ct = default)
     {
         if (_processes.TryGetValue(serverName, out var existing))

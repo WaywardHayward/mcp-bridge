@@ -9,6 +9,7 @@ public sealed class McpServerProcess(Process process) : IDisposable
 {
     public Process Process { get; } = process;
     public SemaphoreSlim WriteLock { get; } = new(1, 1);
+    public bool IsInitialized { get; set; }
 
     public void Dispose()
     {

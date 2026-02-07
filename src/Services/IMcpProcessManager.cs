@@ -1,3 +1,5 @@
+using McpBridge.Models.Configuration;
+
 namespace McpBridge.Services;
 
 /// <summary>
@@ -9,6 +11,7 @@ public interface IMcpProcessManager
     bool IsServerRunning(string serverName);
     int GetActiveServerCount();
     IReadOnlyList<string> GetConfiguredServers();
+    McpServerConfig? GetServerConfig(string serverName);
     Task<McpServerProcess> GetOrStartServerAsync(string serverName, CancellationToken ct = default);
     Task ShutdownServerAsync(string serverName);
 }
