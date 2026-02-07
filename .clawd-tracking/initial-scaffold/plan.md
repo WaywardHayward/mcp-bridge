@@ -18,38 +18,38 @@ Create a .NET REST API that acts as a generic bridge to any MCP (Model Context P
 - [x] Create ~/dev/mcp-bridge directory
 - [x] git init, create main branch
 - [x] Create .clawd-tracking/initial-scaffold/plan.md
-- [ ] Add .gitignore
-- [ ] Create GitHub repo (private)
+- [x] Add .gitignore
+- [x] Create GitHub repo (private)
 
 ### Phase 2: Project Structure
-- [ ] Create .NET minimal API project
-- [ ] Add directory structure (Models, Services, Configuration)
-- [ ] Add required packages
+- [x] Create .NET minimal API project
+- [x] Add directory structure (Models, Services, Configuration)
+- [x] Add required packages
 
 ### Phase 3: Configuration
-- [ ] Create McpServerSettings class
-- [ ] Update appsettings.json with example servers
-- [ ] Wire up IOptions pattern
+- [x] Create McpServerSettings class
+- [x] Update appsettings.json with example servers
+- [x] Wire up IOptions pattern
 
 ### Phase 4: MCP Client Service
-- [ ] Create IMcpClientService interface
-- [ ] Implement McpClientService with process management
-- [ ] Handle JSON-RPC communication
-- [ ] Register with DI
+- [x] Create IMcpClientService interface
+- [x] Implement McpClientService with process management
+- [x] Handle JSON-RPC communication
+- [x] Register with DI
 
 ### Phase 5: REST Endpoints
-- [ ] GET /health
-- [ ] GET /servers
-- [ ] GET /servers/{name}/tools
-- [ ] POST /servers/{name}/invoke
+- [x] GET /health
+- [x] GET /servers
+- [x] GET /servers/{name}/tools
+- [x] POST /servers/{name}/invoke
 
 ### Phase 6: Documentation
-- [ ] Create comprehensive README.md
+- [x] Create comprehensive README.md
 
 ### Phase 7: Review & Complete
-- [ ] Review against CODE_STYLE.md
-- [ ] Build verification (0 errors, 0 warnings)
-- [ ] Commit and push
+- [x] Review against CODE_STYLE.md
+- [x] Build verification (0 errors, 0 warnings)
+- [x] Commit and push
 
 ## Dependencies
 - .NET 9 SDK (at ~/.dotnet/dotnet)

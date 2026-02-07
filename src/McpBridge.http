@@ -1,0 +1,6 @@
+@McpBridge_HostAddress = http://localhost:5214
+
+GET {{McpBridge_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
