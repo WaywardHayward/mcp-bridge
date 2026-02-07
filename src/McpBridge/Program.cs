@@ -1,5 +1,6 @@
 using McpBridge.Models.Configuration;
 using McpBridge.Services;
+using McpBridge.Services.Transports;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -7,9 +8,11 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<McpServersSettings>(
     builder.Configuration.GetSection(McpServersSettings.SectionName));
 
+// HTTP client factory for SSE transports
+builder.Services.AddHttpClient("MCP");
+
 // Register services
-builder.Services.AddSingleton<IMcpProcessManager, McpProcessManager>();
-builder.Services.AddSingleton<IMcpJsonRpcClient, McpJsonRpcClient>();
+builder.Services.AddSingleton<IMcpTransportFactory, McpTransportFactory>();
 builder.Services.AddSingleton<IMcpClientService, McpClientService>();
 builder.Services.AddControllers();
 

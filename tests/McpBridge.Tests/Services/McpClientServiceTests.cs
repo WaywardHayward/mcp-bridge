@@ -1,39 +1,60 @@
 using McpBridge.Models.Api;
+using McpBridge.Models.Configuration;
 using McpBridge.Models.Mcp;
 using McpBridge.Services;
+using McpBridge.Services.Transports;
+using Microsoft.Extensions.Options;
 using Moq;
 
 namespace McpBridge.Tests.Services;
 
 public class McpClientServiceTests
 {
-    private readonly Mock<IMcpProcessManager> _mockProcessManager;
-    private readonly Mock<IMcpJsonRpcClient> _mockRpcClient;
+    private readonly Mock<IOptions<McpServersSettings>> _mockOptions;
+    private readonly Mock<IMcpTransportFactory> _mockTransportFactory;
+    private readonly McpServersSettings _settings;
 
     public McpClientServiceTests()
     {
-        _mockProcessManager = new Mock<IMcpProcessManager>();
-        _mockRpcClient = new Mock<IMcpJsonRpcClient>();
+        _settings = new McpServersSettings
+        {
+            Servers = new Dictionary<string, McpServerConfig>
+            {
+                ["test-server"] = new McpServerConfig
+                {
+                    Transport = McpTransportType.Stdio,
+                    Command = "echo",
+                    Args = ["hello"]
+                },
+                ["remote-server"] = new McpServerConfig
+                {
+                    Transport = McpTransportType.Sse,
+                    Url = "https://example.com/mcp"
+                }
+            }
+        };
+
+        _mockOptions = new Mock<IOptions<McpServersSettings>>();
+        _mockOptions.Setup(x => x.Value).Returns(_settings);
+        _mockTransportFactory = new Mock<IMcpTransportFactory>();
     }
 
     [Fact]
-    public void Given_ProcessManagerHasServer_When_ServerExistsCalled_Then_ReturnsTrue()
+    public void Given_ConfiguredServer_When_ServerExistsCalled_Then_ReturnsTrue()
     {
-        _mockProcessManager.Setup(x => x.ServerExists("test")).Returns(true);
-        var service = new McpClientService(_mockProcessManager.Object, _mockRpcClient.Object);
+        var service = new McpClientService(_mockOptions.Object, _mockTransportFactory.Object);
 
-        var result = service.ServerExists("test");
+        var result = service.ServerExists("test-server");
 
         Assert.True(result);
     }
 
     [Fact]
-    public void Given_ProcessManagerNoServer_When_ServerExistsCalled_Then_ReturnsFalse()
+    public void Given_UnknownServer_When_ServerExistsCalled_Then_ReturnsFalse()
     {
-        _mockProcessManager.Setup(x => x.ServerExists("unknown")).Returns(false);
-        var service = new McpClientService(_mockProcessManager.Object, _mockRpcClient.Object);
+        var service = new McpClientService(_mockOptions.Object, _mockTransportFactory.Object);
 
-        var result = service.ServerExists("unknown");
+        var result = service.ServerExists("unknown-server");
 
         Assert.False(result);
     }
@@ -41,101 +62,128 @@ public class McpClientServiceTests
     [Fact]
     public void Given_ConfiguredServers_When_GetServerInfosCalled_Then_ReturnsServerInfoList()
     {
-        _mockProcessManager.Setup(x => x.GetConfiguredServers())
-            .Returns(new List<string> { "server1", "server2" });
-        _mockProcessManager.Setup(x => x.IsServerRunning("server1")).Returns(true);
-        _mockProcessManager.Setup(x => x.IsServerRunning("server2")).Returns(false);
-        _mockProcessManager.Setup(x => x.GetServerConfig("server1"))
-            .Returns(new McpBridge.Models.Configuration.McpServerConfig { Command = "cmd1", Args = ["arg1"] });
-        _mockProcessManager.Setup(x => x.GetServerConfig("server2"))
-            .Returns(new McpBridge.Models.Configuration.McpServerConfig { Command = "cmd2", Args = [] });
-
-        var service = new McpClientService(_mockProcessManager.Object, _mockRpcClient.Object);
+        var service = new McpClientService(_mockOptions.Object, _mockTransportFactory.Object);
 
         var result = service.GetServerInfos();
 
         Assert.Equal(2, result.Count);
-        Assert.Equal("server1", result[0].Name);
-        Assert.True(result[0].IsRunning);
-        Assert.Equal("cmd1", result[0].Command);
-        Assert.Equal("server2", result[1].Name);
-        Assert.False(result[1].IsRunning);
+        Assert.Contains(result, s => s.Name == "test-server" && s.Command == "echo");
+        Assert.Contains(result, s => s.Name == "remote-server" && s.Command == null);
     }
 
     [Fact]
-    public void Given_ActiveServers_When_GetActiveServerCountCalled_Then_ReturnsCount()
+    public void Given_NoActiveTransports_When_GetActiveServerCountCalled_Then_ReturnsZero()
     {
-        _mockProcessManager.Setup(x => x.GetActiveServerCount()).Returns(3);
-        var service = new McpClientService(_mockProcessManager.Object, _mockRpcClient.Object);
+        var service = new McpClientService(_mockOptions.Object, _mockTransportFactory.Object);
 
         var result = service.GetActiveServerCount();
 
-        Assert.Equal(3, result);
+        Assert.Equal(0, result);
     }
 
     [Fact]
-    public async Task Given_RpcClientThrows_When_InvokeToolAsyncCalled_Then_ReturnsErrorResponse()
+    public async Task Given_ValidServer_When_ListToolsAsyncCalled_Then_ReturnsToolsFromTransport()
     {
-        var mockProcess = new Mock<McpServerProcess>(MockBehavior.Loose, new System.Diagnostics.Process());
-        
-        _mockProcessManager.Setup(x => x.GetOrStartServerAsync("test", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(mockProcess.Object);
-        _mockRpcClient.Setup(x => x.InitializeServerAsync(It.IsAny<McpServerProcess>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
-        _mockRpcClient.Setup(x => x.SendRequestAsync<McpCallToolResult>(
-                It.IsAny<McpServerProcess>(), 
-                "tools/call", 
-                It.IsAny<object>(), 
-                It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new InvalidOperationException("RPC failed"));
+        var mockTransport = new Mock<IMcpTransport>();
+        var expectedTools = new List<McpTool>
+        {
+            new() { Name = "tool1", Description = "Tool 1" },
+            new() { Name = "tool2", Description = "Tool 2" }
+        };
 
-        var service = new McpClientService(_mockProcessManager.Object, _mockRpcClient.Object);
+        mockTransport.Setup(x => x.InitializeAsync(It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        mockTransport.Setup(x => x.ListToolsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expectedTools);
+        _mockTransportFactory.Setup(x => x.Create(It.IsAny<McpServerConfig>()))
+            .Returns(mockTransport.Object);
+
+        var service = new McpClientService(_mockOptions.Object, _mockTransportFactory.Object);
+
+        var result = await service.ListToolsAsync("test-server");
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal("tool1", result[0].Name);
+    }
+
+    [Fact]
+    public async Task Given_TransportThrows_When_InvokeToolAsyncCalled_Then_ReturnsErrorResponse()
+    {
+        var mockTransport = new Mock<IMcpTransport>();
+        mockTransport.Setup(x => x.InitializeAsync(It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        mockTransport.Setup(x => x.CallToolAsync(It.IsAny<string>(), It.IsAny<Dictionary<string, object>?>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("Transport failed"));
+        _mockTransportFactory.Setup(x => x.Create(It.IsAny<McpServerConfig>()))
+            .Returns(mockTransport.Object);
+
+        var service = new McpClientService(_mockOptions.Object, _mockTransportFactory.Object);
         var request = new InvokeRequest { Tool = "test-tool" };
 
-        var result = await service.InvokeToolAsync("test", request);
+        var result = await service.InvokeToolAsync("test-server", request);
 
         Assert.False(result.Success);
-        Assert.Equal("RPC failed", result.Error);
+        Assert.Equal("Transport failed", result.Error);
     }
 
     [Fact]
-    public async Task Given_SuccessfulRpcCall_When_InvokeToolAsyncCalled_Then_ReturnsSuccessResponse()
+    public async Task Given_SuccessfulTransportCall_When_InvokeToolAsyncCalled_Then_ReturnsSuccessResponse()
     {
-        var mockProcess = new Mock<McpServerProcess>(MockBehavior.Loose, new System.Diagnostics.Process());
+        var mockTransport = new Mock<IMcpTransport>();
         var mcpResult = new McpCallToolResult
         {
             IsError = false,
             Content = [new McpContentItem { Type = "text", Text = "Success!" }]
         };
 
-        _mockProcessManager.Setup(x => x.GetOrStartServerAsync("test", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(mockProcess.Object);
-        _mockRpcClient.Setup(x => x.InitializeServerAsync(It.IsAny<McpServerProcess>(), It.IsAny<CancellationToken>()))
+        mockTransport.Setup(x => x.InitializeAsync(It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
-        _mockRpcClient.Setup(x => x.SendRequestAsync<McpCallToolResult>(
-                It.IsAny<McpServerProcess>(),
-                "tools/call",
-                It.IsAny<object>(),
-                It.IsAny<CancellationToken>()))
+        mockTransport.Setup(x => x.CallToolAsync(It.IsAny<string>(), It.IsAny<Dictionary<string, object>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(mcpResult);
+        _mockTransportFactory.Setup(x => x.Create(It.IsAny<McpServerConfig>()))
+            .Returns(mockTransport.Object);
 
-        var service = new McpClientService(_mockProcessManager.Object, _mockRpcClient.Object);
+        var service = new McpClientService(_mockOptions.Object, _mockTransportFactory.Object);
         var request = new InvokeRequest { Tool = "test-tool" };
 
-        var result = await service.InvokeToolAsync("test", request);
+        var result = await service.InvokeToolAsync("test-server", request);
 
         Assert.True(result.Success);
         Assert.Null(result.Error);
     }
 
     [Fact]
-    public async Task Given_ServerName_When_ShutdownServerAsyncCalled_Then_DelegatesToProcessManager()
+    public async Task Given_ActiveTransport_When_ShutdownServerAsyncCalled_Then_DisposesTransport()
     {
-        _mockProcessManager.Setup(x => x.ShutdownServerAsync("test")).Returns(Task.CompletedTask);
-        var service = new McpClientService(_mockProcessManager.Object, _mockRpcClient.Object);
+        var mockTransport = new Mock<IMcpTransport>();
+        mockTransport.Setup(x => x.InitializeAsync(It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        mockTransport.Setup(x => x.ListToolsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<McpTool>());
+        mockTransport.Setup(x => x.DisposeAsync())
+            .Returns(ValueTask.CompletedTask);
+        _mockTransportFactory.Setup(x => x.Create(It.IsAny<McpServerConfig>()))
+            .Returns(mockTransport.Object);
 
-        await service.ShutdownServerAsync("test");
+        var service = new McpClientService(_mockOptions.Object, _mockTransportFactory.Object);
+        
+        // First create the transport
+        await service.ListToolsAsync("test-server");
+        Assert.Equal(1, service.GetActiveServerCount());
 
-        _mockProcessManager.Verify(x => x.ShutdownServerAsync("test"), Times.Once);
+        // Then shutdown
+        await service.ShutdownServerAsync("test-server");
+
+        Assert.Equal(0, service.GetActiveServerCount());
+        mockTransport.Verify(x => x.DisposeAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task Given_UnknownServer_When_ListToolsAsyncCalled_Then_ThrowsArgumentException()
+    {
+        var service = new McpClientService(_mockOptions.Object, _mockTransportFactory.Object);
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => service.ListToolsAsync("unknown-server"));
     }
 }

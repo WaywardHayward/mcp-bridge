@@ -1,47 +1,46 @@
+using System.Collections.Concurrent;
 using McpBridge.Models.Api;
+using McpBridge.Models.Configuration;
 using McpBridge.Models.Mcp;
+using McpBridge.Services.Transports;
+using Microsoft.Extensions.Options;
 
 namespace McpBridge.Services;
 
 /// <summary>
-/// Orchestrates MCP server communication - thin layer over process and RPC services.
+/// Orchestrates MCP server communication via transports.
 /// </summary>
-public class McpClientService : IMcpClientService
+public class McpClientService : IMcpClientService, IAsyncDisposable
 {
-    private readonly IMcpProcessManager _processManager;
-    private readonly IMcpJsonRpcClient _rpcClient;
+    private readonly McpServersSettings _settings;
+    private readonly IMcpTransportFactory _transportFactory;
+    private readonly ConcurrentDictionary<string, IMcpTransport> _transports = new();
 
-    public McpClientService(IMcpProcessManager processManager, IMcpJsonRpcClient rpcClient)
+    public McpClientService(IOptions<McpServersSettings> settings, IMcpTransportFactory transportFactory)
     {
-        _processManager = processManager;
-        _rpcClient = rpcClient;
+        _settings = settings.Value;
+        _transportFactory = transportFactory;
     }
 
     public bool ServerExists(string serverName) => 
-        _processManager.ServerExists(serverName);
+        _settings.Servers.ContainsKey(serverName);
 
     public IReadOnlyList<ServerInfo> GetServerInfos() =>
-        _processManager.GetConfiguredServers()
-            .Select(name =>
-            {
-                var config = _processManager.GetServerConfig(name);
-                return new ServerInfo
-                {
-                    Name = name,
-                    Command = config?.Command,
-                    Args = config?.Args ?? [],
-                    IsRunning = _processManager.IsServerRunning(name)
-                };
-            }).ToList();
+        _settings.Servers.Select(kvp => new ServerInfo
+        {
+            Name = kvp.Key,
+            Command = kvp.Value.Command,
+            Args = kvp.Value.Args,
+            IsRunning = _transports.ContainsKey(kvp.Key)
+        }).ToList();
 
     public int GetActiveServerCount() => 
-        _processManager.GetActiveServerCount();
+        _transports.Count;
 
     public async Task<List<McpTool>> ListToolsAsync(string serverName, CancellationToken ct = default)
     {
-        var process = await GetInitializedServerAsync(serverName, ct);
-        var response = await _rpcClient.SendRequestAsync<McpToolsResult>(process, "tools/list", null, ct);
-        return response?.Tools ?? [];
+        var transport = await GetOrCreateTransportAsync(serverName, ct);
+        return await transport.ListToolsAsync(ct);
     }
 
     public async Task<InvokeResponse> InvokeToolAsync(string serverName, InvokeRequest request, CancellationToken ct = default)
@@ -58,12 +57,8 @@ public class McpClientService : IMcpClientService
 
     private async Task<InvokeResponse> InvokeToolCoreAsync(string serverName, InvokeRequest request, CancellationToken ct)
     {
-        var process = await GetInitializedServerAsync(serverName, ct);
-        var callParams = new { name = request.Tool, arguments = request.Params ?? new Dictionary<string, object>() };
-        var result = await _rpcClient.SendRequestAsync<McpCallToolResult>(process, "tools/call", callParams, ct);
-
-        if (result is null)
-            return new InvokeResponse { Success = false, Error = "No response from server" };
+        var transport = await GetOrCreateTransportAsync(serverName, ct);
+        var result = await transport.CallToolAsync(request.Tool, request.Params, ct);
 
         return new InvokeResponse
         {
@@ -73,19 +68,32 @@ public class McpClientService : IMcpClientService
         };
     }
 
-    public Task ShutdownServerAsync(string serverName) => 
-        _processManager.ShutdownServerAsync(serverName);
-
-    private async Task<McpServerProcess> GetInitializedServerAsync(string serverName, CancellationToken ct)
+    public async Task ShutdownServerAsync(string serverName)
     {
-        var process = await _processManager.GetOrStartServerAsync(serverName, ct);
+        if (_transports.TryRemove(serverName, out var transport))
+            await transport.DisposeAsync();
+    }
+
+    private async Task<IMcpTransport> GetOrCreateTransportAsync(string serverName, CancellationToken ct)
+    {
+        if (_transports.TryGetValue(serverName, out var existing))
+            return existing;
+
+        if (!_settings.Servers.TryGetValue(serverName, out var config))
+            throw new ArgumentException($"Server '{serverName}' not found in configuration");
+
+        var transport = _transportFactory.Create(config);
+        await transport.InitializeAsync(ct);
+
+        _transports[serverName] = transport;
+        return transport;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        foreach (var transport in _transports.Values)
+            await transport.DisposeAsync();
         
-        if (!process.IsInitialized)
-        {
-            await _rpcClient.InitializeServerAsync(process, ct);
-            process.IsInitialized = true;
-        }
-        
-        return process;
+        _transports.Clear();
     }
 }
