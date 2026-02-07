@@ -1,0 +1,25 @@
+# Build outputs
+bin/
+obj/
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Dev workflow scratch files
+.clawd-tracking/*/log.md
+.clawd-tracking/*/scratch/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+appsettings.*.local.json
