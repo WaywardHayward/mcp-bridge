@@ -8,12 +8,9 @@ var builder = WebApplication.CreateBuilder(args);
 var isVerbose = args.Contains("--verbose") || args.Contains("-v");
 builder.Logging.SetMinimumLevel(isVerbose ? LogLevel.Debug : LogLevel.Information);
 
-// Configure MCP servers settings
-builder.Services.Configure<McpServersSettings>(options =>
-{
-    var section = builder.Configuration.GetSection(McpServersSettings.SectionName);
-    options.Servers = section.Get<Dictionary<string, McpServerConfig>>() ?? new();
-});
+// Configure MCP servers settings - clean bind, inject anywhere
+builder.Services.Configure<McpServersSettings>(
+    builder.Configuration.GetSection(McpServersSettings.SectionName));
 
 // Register services
 builder.Services.AddSingleton<IMcpClientService, McpClientService>();
