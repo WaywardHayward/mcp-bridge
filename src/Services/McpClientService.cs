@@ -26,7 +26,7 @@ public class McpClientService : IMcpClientService, IDisposable
         _logger = logger;
     }
 
-    public IReadOnlyList<string> GetConfiguredServers() => _settings.Servers.Keys.ToList();
+    public bool ServerExists(string serverName) => _settings.Servers.ContainsKey(serverName);
 
     public IReadOnlyList<ServerInfo> GetServerInfos() =>
         _settings.Servers.Select(kvp => new ServerInfo
@@ -48,16 +48,27 @@ public class McpClientService : IMcpClientService, IDisposable
         return response?.Tools ?? [];
     }
 
-    public async Task<McpCallToolResult> InvokeToolAsync(
-        string serverName,
-        string toolName,
-        Dictionary<string, object>? parameters,
-        CancellationToken ct = default)
+    public async Task<InvokeResponse> InvokeToolAsync(string serverName, InvokeRequest request, CancellationToken ct = default)
     {
-        var process = await EnsureServerStartedAsync(serverName, ct);
-        var callParams = new { name = toolName, arguments = parameters ?? new Dictionary<string, object>() };
-        var response = await SendRequestAsync<McpCallToolResult>(process, "tools/call", callParams, ct);
-        return response ?? new McpCallToolResult { IsError = true, Content = [new McpContentItem { Text = "No response" }] };
+        try
+        {
+            var process = await EnsureServerStartedAsync(serverName, ct);
+            var callParams = new { name = request.Tool, arguments = request.Params ?? new Dictionary<string, object>() };
+            var result = await SendRequestAsync<McpCallToolResult>(process, "tools/call", callParams, ct);
+            
+            return result is null 
+                ? new InvokeResponse { Success = false, Error = "No response from server" }
+                : new InvokeResponse
+                {
+                    Success = !result.IsError,
+                    Result = result.Content,
+                    Error = result.IsError ? result.Content.FirstOrDefault()?.Text : null
+                };
+        }
+        catch (Exception ex)
+        {
+            return new InvokeResponse { Success = false, Error = ex.Message };
+        }
     }
 
     public async Task ShutdownServerAsync(string serverName)

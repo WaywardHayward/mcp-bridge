@@ -8,9 +8,9 @@ namespace McpBridge.Services;
 public interface IMcpClientService
 {
     /// <summary>
-    /// Gets the list of configured server names.
+    /// Checks if a server exists in configuration.
     /// </summary>
-    IReadOnlyList<string> GetConfiguredServers();
+    bool ServerExists(string serverName);
 
     /// <summary>
     /// Gets information about all configured servers.
@@ -18,9 +18,9 @@ public interface IMcpClientService
     IReadOnlyList<ServerInfo> GetServerInfos();
 
     /// <summary>
-    /// Checks if a server is currently running.
+    /// Gets the count of active server processes.
     /// </summary>
-    bool IsServerRunning(string serverName);
+    int GetActiveServerCount();
 
     /// <summary>
     /// Lists available tools for a server.
@@ -28,21 +28,12 @@ public interface IMcpClientService
     Task<List<McpTool>> ListToolsAsync(string serverName, CancellationToken ct = default);
 
     /// <summary>
-    /// Invokes a tool on a server.
+    /// Invokes a tool on a server and returns a clean response.
     /// </summary>
-    Task<McpCallToolResult> InvokeToolAsync(
-        string serverName, 
-        string toolName, 
-        Dictionary<string, object>? parameters, 
-        CancellationToken ct = default);
+    Task<InvokeResponse> InvokeToolAsync(string serverName, InvokeRequest request, CancellationToken ct = default);
 
     /// <summary>
     /// Shuts down a running server.
     /// </summary>
     Task ShutdownServerAsync(string serverName);
-
-    /// <summary>
-    /// Gets the count of active server processes.
-    /// </summary>
-    int GetActiveServerCount();
 }
