@@ -1,5 +1,6 @@
 using McpBridge.Models.Configuration;
 using McpBridge.Services;
+using McpBridge.Services.Logging;
 using McpBridge.Services.Transports;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -14,6 +15,7 @@ builder.Services.AddHttpClient("MCP");
 // Register services
 builder.Services.AddSingleton<IMcpTransportFactory, McpTransportFactory>();
 builder.Services.AddSingleton<IMcpClientService, McpClientService>();
+builder.Services.AddSingleton<IInvocationLogger, SqliteInvocationLogger>();
 builder.Services.AddControllers();
 
 var app = builder.Build();
