@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using McpBridge.Configuration;
+using McpBridge.Models.Configuration;
 using Microsoft.Extensions.Options;
 
 namespace McpBridge.Services;

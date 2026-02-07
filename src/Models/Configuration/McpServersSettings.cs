@@ -1,4 +1,4 @@
-namespace McpBridge.Configuration;
+namespace McpBridge.Models.Configuration;
 
 /// <summary>
 /// Configuration for all MCP servers.

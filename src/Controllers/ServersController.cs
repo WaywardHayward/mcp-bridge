@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using McpBridge.Models;
+using McpBridge.Models.Api;
 using McpBridge.Services;
 
 namespace McpBridge.Controllers;

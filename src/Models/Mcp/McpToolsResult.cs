@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace McpBridge.Models;
+namespace McpBridge.Models.Mcp;
 
 /// <summary>
 /// MCP tools list result.

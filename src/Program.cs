@@ -1,4 +1,4 @@
-using McpBridge.Configuration;
+using McpBridge.Models.Configuration;
 using McpBridge.Services;
 
 var builder = WebApplication.CreateBuilder(args);

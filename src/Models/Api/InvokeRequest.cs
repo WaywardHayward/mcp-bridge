@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace McpBridge.Models;
+namespace McpBridge.Models.Api;
 
 /// <summary>
 /// Tool invocation request.

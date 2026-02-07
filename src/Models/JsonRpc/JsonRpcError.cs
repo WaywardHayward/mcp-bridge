@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace McpBridge.Models;
+namespace McpBridge.Models.JsonRpc;
 
 /// <summary>
 /// JSON-RPC error structure.

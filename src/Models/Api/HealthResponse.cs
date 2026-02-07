@@ -1,4 +1,4 @@
-namespace McpBridge.Models;
+namespace McpBridge.Models.Api;
 
 /// <summary>
 /// Health check response.
