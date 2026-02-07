@@ -20,3 +20,13 @@ public class McpServerConfig
     public Dictionary<string, string> Environment { get; set; } = new();
     public string? WorkingDirectory { get; set; }
 }
+
+/// <summary>
+/// Logging configuration settings.
+/// </summary>
+public class LoggingSettings
+{
+    public const string SectionName = "Logging";
+    
+    public string MinimumLevel { get; set; } = "Information";
+}
