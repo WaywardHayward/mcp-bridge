@@ -8,7 +8,7 @@ namespace McpBridge.Models;
 public class ServerInfo
 {
     public required string Name { get; set; }
-    public required string Command { get; set; }
+    public string? Command { get; set; }
     public string[] Args { get; set; } = [];
     public bool IsRunning { get; set; }
 }
