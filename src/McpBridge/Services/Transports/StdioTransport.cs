@@ -119,7 +119,7 @@ public class StdioTransport : IMcpTransport
         if (_process is null || _writeLock is null)
             throw new InvalidOperationException("Transport not initialized");
 
-        var notification = new { jsonrpc = "2.0", method, @params };
+        var notification = new { jsonrpc = "2.0", method };
         var json = JsonSerializer.Serialize(notification, _jsonOptions);
 
         await _writeLock.WaitAsync();

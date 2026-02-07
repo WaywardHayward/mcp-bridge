@@ -17,5 +17,6 @@ public class JsonRpcRequest
     public required string Method { get; set; }
 
     [JsonPropertyName("params")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public object? Params { get; set; }
 }
