@@ -4,16 +4,35 @@ A .NET REST API that acts as a generic bridge to any MCP (Model Context Protocol
 
 ## Features
 
-- **Multi-server support** - Configure and run multiple MCP servers simultaneously
-- **Dual transport support** - Local servers via stdio, remote servers via SSE (Server-Sent Events)
-- **On-demand connection** - Servers connect automatically when first accessed
-- **JSON-RPC communication** - Full MCP protocol support
-- **Simple REST API** - Easy-to-use HTTP endpoints for tool discovery and invocation
+- **Multi-server support** — Configure and run multiple MCP servers simultaneously
+- **Dual transport support** — Local servers via stdio, remote servers via SSE (Server-Sent Events)
+- **On-demand connection** — Servers connect automatically when first accessed
+- **Invocation logging** — SQLite-based logging of all tool invocations with pattern analysis
+- **JSON-RPC communication** — Full MCP protocol support
+- **Simple REST API** — Easy-to-use HTTP endpoints for tool discovery and invocation
 
 ## Requirements
 
 - .NET 9 SDK
 - MCP server packages (e.g., via npx) for local servers
+
+## Quick Start
+
+```bash
+# Clone the repo
+git clone https://github.com/waywardhayward/mcp-bridge.git
+cd mcp-bridge
+
+# Copy and configure settings
+cp src/McpBridge/appsettings.example.json src/McpBridge/appsettings.json
+# Edit appsettings.json with your server configurations
+
+# Run
+cd src/McpBridge
+dotnet run
+```
+
+The API will be available at `http://localhost:5050`.
 
 ## Configuration
 
@@ -61,60 +80,58 @@ For remote MCP servers that use HTTP Server-Sent Events.
 | `Headers` | object | Additional HTTP headers (optional) |
 | `ApiKeyEnvVar` | string | Environment variable containing API key (optional) |
 
-## Running
-
-```bash
-cd src/McpBridge
-dotnet run
-```
-
-The API will be available at `http://localhost:5000`.
-
 ## API Endpoints
 
 ### Health Check
 
-```http
-GET /health
+```bash
+curl http://localhost:5050/health
 ```
-
-Returns server health status.
 
 ### List Servers
 
-```http
-GET /servers
+```bash
+curl http://localhost:5050/servers
 ```
 
 Returns all configured MCP servers with their running status.
 
 ### List Tools
 
-```http
-GET /servers/{name}/tools
+```bash
+curl http://localhost:5050/servers/filesystem/tools
 ```
 
 Lists available tools for a specific MCP server.
 
 ### Invoke Tool
 
-```http
-POST /servers/{name}/invoke
-Content-Type: application/json
-
-{
-  "tool": "tool_name",
-  "params": { ... }
-}
+```bash
+curl -X POST http://localhost:5050/servers/filesystem/invoke \
+  -H "Content-Type: application/json" \
+  -d '{"tool": "list_directory", "params": {"path": "/tmp"}}'
 ```
 
 ### Shutdown Server
 
-```http
-POST /servers/{name}/shutdown
+```bash
+curl -X POST http://localhost:5050/servers/filesystem/shutdown
 ```
 
-Shuts down/disconnects from a server.
+Disconnects from a running server.
+
+### Logs
+
+```bash
+# Get recent invocations
+curl http://localhost:5050/logs?limit=50
+
+# Get invocation stats
+curl http://localhost:5050/logs/stats
+
+# Get usage patterns
+curl http://localhost:5050/logs/patterns
+```
 
 ## Architecture
 
@@ -141,18 +158,40 @@ Shuts down/disconnects from a server.
 ```
 /
 ├── src/
-│   └── McpBridge/           # Main application
-│       ├── Controllers/     # API endpoints
-│       ├── Models/          # Data models
-│       │   ├── Api/         # API request/response models
+│   └── McpBridge/              # Main application
+│       ├── Controllers/        # API endpoints
+│       ├── Models/             # Data models
+│       │   ├── Api/            # API request/response models
 │       │   ├── Configuration/
 │       │   ├── JsonRpc/
+│       │   ├── Logging/
 │       │   └── Mcp/
-│       └── Services/        # Business logic
-│           └── Transports/  # Stdio & SSE transports
+│       └── Services/           # Business logic
+│           ├── Logging/        # Invocation logging
+│           └── Transports/     # Stdio & SSE transports
 ├── tests/
-│   └── McpBridge.Tests/     # Unit tests
+│   └── McpBridge.Tests/        # Unit tests
 └── McpBridge.sln
+```
+
+## Running as a Service
+
+For production deployments, you can run MCP Bridge as a systemd service:
+
+```ini
+[Unit]
+Description=MCP Bridge
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/path/to/mcp-bridge/src/McpBridge
+ExecStart=/path/to/dotnet run
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
 ```
 
 ## License
