@@ -11,11 +11,18 @@ namespace McpBridge.Services.Transports;
 /// </summary>
 public class SseTransport : IMcpTransport
 {
+    private const string ProtocolVersion = "2024-11-05";
+    private const string ClientName = "mcp-bridge";
+    private const string ClientVersion = "1.0.0";
+    private const string SseMediaType = "text/event-stream";
+    private const string EndpointEventPrefix = "event: endpoint";
+    private const string DataLinePrefix = "data: ";
+
     private readonly McpServerConfig _config;
     private readonly HttpClient _httpClient;
     private readonly JsonSerializerOptions _jsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
     private int _requestId;
-    private string? _sessionId;
+    private string? _sessionEndpoint;
 
     public SseTransport(McpServerConfig config, IHttpClientFactory httpClientFactory)
     {
@@ -30,33 +37,9 @@ public class SseTransport : IMcpTransport
     {
         if (IsInitialized) return;
 
-        // Connect to SSE endpoint and get session
-        var sseUrl = _config.Url!;
+        _sessionEndpoint = await ConnectAndGetEndpointAsync(ct);
+        await PerformHandshakeAsync(ct);
         
-        using var request = new HttpRequestMessage(HttpMethod.Get, sseUrl);
-        request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("text/event-stream"));
-
-        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-        response.EnsureSuccessStatusCode();
-
-        // Read the initial SSE event to get session/endpoint info
-        using var stream = await response.Content.ReadAsStreamAsync(ct);
-        using var reader = new StreamReader(stream);
-
-        var endpoint = await ReadSseEndpointAsync(reader, ct);
-        _sessionId = endpoint;
-
-        // Send initialize request
-        var initParams = new
-        {
-            protocolVersion = "2024-11-05",
-            capabilities = new { },
-            clientInfo = new { name = "mcp-bridge", version = "1.0.0" }
-        };
-
-        await SendRequestAsync<object>("initialize", initParams, ct);
-        await SendNotificationAsync("notifications/initialized", null, ct);
-
         IsInitialized = true;
     }
 
@@ -70,7 +53,7 @@ public class SseTransport : IMcpTransport
     {
         var callParams = new { name = toolName, arguments = parameters ?? new Dictionary<string, object>() };
         var result = await SendRequestAsync<McpCallToolResult>("tools/call", callParams, ct);
-        return result ?? new McpCallToolResult { IsError = true, Content = [new McpContentItem { Text = "No response" }] };
+        return result ?? CreateNoResponseError();
     }
 
     public ValueTask DisposeAsync()
@@ -79,61 +62,91 @@ public class SseTransport : IMcpTransport
         return ValueTask.CompletedTask;
     }
 
+    #region Initialization
+
+    private async Task<string> ConnectAndGetEndpointAsync(CancellationToken ct)
+    {
+        using var request = CreateSseRequest(_config.Url!);
+        using var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        response.EnsureSuccessStatusCode();
+
+        using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var reader = new StreamReader(stream);
+        
+        return await ReadSseEndpointAsync(reader, ct);
+    }
+
+    private async Task PerformHandshakeAsync(CancellationToken ct)
+    {
+        var initParams = CreateInitializeParams();
+        await SendRequestAsync<object>("initialize", initParams, ct);
+        await SendNotificationAsync("notifications/initialized", null, ct);
+    }
+
+    private static HttpRequestMessage CreateSseRequest(string url)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue(SseMediaType));
+        return request;
+    }
+
+    private static object CreateInitializeParams() => new
+    {
+        protocolVersion = ProtocolVersion,
+        capabilities = new { },
+        clientInfo = new { name = ClientName, version = ClientVersion }
+    };
+
+    #endregion
+
+    #region HTTP Configuration
+
     private void ConfigureHttpClient()
     {
-        foreach (var header in _config.Headers)
-            _httpClient.DefaultRequestHeaders.Add(header.Key, header.Value);
+        AddCustomHeaders();
+        AddBearerTokenIfConfigured();
+    }
 
-        if (!string.IsNullOrEmpty(_config.ApiKeyEnvVar))
+    private void AddCustomHeaders()
+    {
+        foreach (var header in _config.Headers)
         {
-            var apiKey = Environment.GetEnvironmentVariable(_config.ApiKeyEnvVar);
-            if (!string.IsNullOrEmpty(apiKey))
-                _httpClient.DefaultRequestHeaders.Authorization = 
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+            _httpClient.DefaultRequestHeaders.Add(header.Key, header.Value);
         }
     }
 
+    private void AddBearerTokenIfConfigured()
+    {
+        if (string.IsNullOrEmpty(_config.ApiKeyEnvVar)) return;
+
+        var apiKey = Environment.GetEnvironmentVariable(_config.ApiKeyEnvVar);
+        if (string.IsNullOrEmpty(apiKey)) return;
+
+        _httpClient.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+    }
+
+    #endregion
+
+    #region SSE Protocol
+
     private static async Task<string> ReadSseEndpointAsync(StreamReader reader, CancellationToken ct)
     {
-        // MCP SSE protocol sends an "endpoint" event first with the POST URL
         while (!ct.IsCancellationRequested)
         {
             var line = await reader.ReadLineAsync(ct);
             if (line is null) break;
 
-            if (line.StartsWith("event: endpoint"))
+            if (!line.StartsWith(EndpointEventPrefix)) continue;
+
+            var dataLine = await reader.ReadLineAsync(ct);
+            if (dataLine?.StartsWith(DataLinePrefix) == true)
             {
-                var dataLine = await reader.ReadLineAsync(ct);
-                if (dataLine?.StartsWith("data: ") == true)
-                    return dataLine[6..];
+                return dataLine[DataLinePrefix.Length..];
             }
         }
 
         throw new InvalidOperationException("Failed to get SSE endpoint from server");
-    }
-
-    private async Task<T?> SendRequestAsync<T>(string method, object? @params, CancellationToken ct)
-    {
-        var id = Interlocked.Increment(ref _requestId);
-        var request = new JsonRpcRequest { Id = id, Method = method, Params = @params };
-
-        var postUrl = _sessionId ?? _config.Url!;
-        using var response = await _httpClient.PostAsJsonAsync(postUrl, request, _jsonOptions, ct);
-        response.EnsureSuccessStatusCode();
-
-        // SSE response - read from stream
-        using var stream = await response.Content.ReadAsStreamAsync(ct);
-        using var reader = new StreamReader(stream);
-
-        return await ReadSseResponseAsync<T>(reader, id, ct);
-    }
-
-    private async Task SendNotificationAsync(string method, object? @params, CancellationToken ct)
-    {
-        var notification = new { jsonrpc = "2.0", method, @params };
-        var postUrl = _sessionId ?? _config.Url!;
-        using var response = await _httpClient.PostAsJsonAsync(postUrl, notification, _jsonOptions, ct);
-        response.EnsureSuccessStatusCode();
     }
 
     private async Task<T?> ReadSseResponseAsync<T>(StreamReader reader, int expectedId, CancellationToken ct)
@@ -143,21 +156,74 @@ public class SseTransport : IMcpTransport
             var line = await reader.ReadLineAsync(ct);
             if (line is null) break;
 
-            if (line.StartsWith("data: "))
-            {
-                var json = line[6..];
-                if (json.Contains($"\"id\":{expectedId}") || json.Contains($"\"id\": {expectedId}"))
-                {
-                    var response = JsonSerializer.Deserialize<JsonRpcResponse<T>>(json, _jsonOptions);
+            if (!line.StartsWith(DataLinePrefix)) continue;
 
-                    if (response?.Error is not null)
-                        throw new InvalidOperationException($"MCP error: {response.Error.Message}");
+            var json = line[DataLinePrefix.Length..];
+            if (!IsResponseForId(json, expectedId)) continue;
 
-                    return response!.Result;
-                }
-            }
+            return ParseJsonRpcResponse<T>(json);
         }
 
         return default;
     }
+
+    private static bool IsResponseForId(string json, int expectedId)
+    {
+        // Check both compact and pretty-printed JSON formats
+        return json.Contains($"\"id\":{expectedId}") || 
+               json.Contains($"\"id\": {expectedId}");
+    }
+
+    private T? ParseJsonRpcResponse<T>(string json)
+    {
+        var response = JsonSerializer.Deserialize<JsonRpcResponse<T>>(json, _jsonOptions);
+
+        if (response?.Error is not null)
+        {
+            throw new InvalidOperationException($"MCP error: {response.Error.Message}");
+        }
+
+        return response!.Result;
+    }
+
+    #endregion
+
+    #region JSON-RPC Communication
+
+    private async Task<T?> SendRequestAsync<T>(string method, object? @params, CancellationToken ct)
+    {
+        var id = Interlocked.Increment(ref _requestId);
+        var request = new JsonRpcRequest { Id = id, Method = method, Params = @params };
+
+        var postUrl = GetPostUrl();
+        using var response = await _httpClient.PostAsJsonAsync(postUrl, request, _jsonOptions, ct);
+        response.EnsureSuccessStatusCode();
+
+        using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var reader = new StreamReader(stream);
+
+        return await ReadSseResponseAsync<T>(reader, id, ct);
+    }
+
+    private async Task SendNotificationAsync(string method, object? @params, CancellationToken ct)
+    {
+        var notification = new { jsonrpc = "2.0", method, @params };
+        var postUrl = GetPostUrl();
+        using var response = await _httpClient.PostAsJsonAsync(postUrl, notification, _jsonOptions, ct);
+        response.EnsureSuccessStatusCode();
+    }
+
+    private string GetPostUrl() => _sessionEndpoint ?? _config.Url!;
+
+    #endregion
+
+    #region Error Handling
+
+    private static McpCallToolResult CreateNoResponseError() => new()
+    {
+        IsError = true,
+        Content = [new McpContentItem { Text = "No response" }]
+    };
+
+    #endregion
 }
